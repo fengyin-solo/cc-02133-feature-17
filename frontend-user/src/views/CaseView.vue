@@ -72,25 +72,59 @@
     <!-- 客户评价 -->
     <section class="section section-light">
       <div class="container">
-        <SectionTitle 
-          title="客户评价" 
+        <SectionTitle
+          title="客户评价"
           subtitle="听听他们怎么说"
         />
+
+        <!-- 评价导出工具栏 -->
+        <div class="testimonial-toolbar">
+          <span class="selected-count">已选 {{ selectedCount }} 条</span>
+          <div class="toolbar-actions">
+            <el-button text type="primary" @click="handleSelectAll">全选</el-button>
+            <el-button text type="primary" :disabled="selectedCount === 0" @click="clear">
+              清空
+            </el-button>
+            <el-button type="primary" round @click="handleExport">
+              <el-icon class="el-icon--left"><Download /></el-icon>
+              导出所选评价
+            </el-button>
+          </div>
+        </div>
+
         <div class="testimonial-grid">
-          <div class="testimonial-card" v-for="testimonial in testimonials" :key="testimonial.name">
+          <div
+            class="testimonial-card"
+            :class="{ 'is-selected': isSelected(testimonial.id) }"
+            v-for="testimonial in testimonials"
+            :key="testimonial.id"
+            @click="toggle(testimonial.id)"
+          >
+            <el-checkbox
+              class="card-checkbox"
+              :model-value="isSelected(testimonial.id)"
+              @click.stop
+              @change="toggle(testimonial.id)"
+            />
             <div class="quote-icon">
               <el-icon :size="32"><ChatDotSquare /></el-icon>
             </div>
             <p class="testimonial-content">{{ testimonial.content }}</p>
+            <el-rate
+              class="testimonial-rate"
+              :model-value="testimonial.rating"
+              disabled
+            />
             <div class="testimonial-author">
               <div class="author-avatar">
                 <el-icon :size="24"><User /></el-icon>
               </div>
               <div class="author-info">
-                <h4>{{ testimonial.name }}</h4>
-                <p>{{ testimonial.title }}</p>
+                <h4>{{ testimonial.name || '匿名客户' }}</h4>
+                <p>{{ testimonial.title || '未提供介绍' }}</p>
               </div>
             </div>
+            <div class="testimonial-source">来源案例：{{ testimonial.sourceCase }}</div>
           </div>
         </div>
       </div>
@@ -112,7 +146,14 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import SectionTitle from '@/components/SectionTitle.vue'
+import { useTestimonialSelection } from '@/composables/useTestimonialSelection'
+import {
+  validateTestimonials,
+  buildCsv,
+  downloadCsv
+} from '@/utils/testimonialExport'
 
 const activeTag = ref('all')
 
@@ -220,21 +261,98 @@ const filteredCases = computed(() => {
 
 const testimonials = [
   {
+    id: 'tm-001',
     content: '知运的智慧仓储系统帮助我们实现了仓库作业的全面升级，效率提升非常明显，团队都很满意。',
     name: '王经理',
-    title: '某电商平台物流总监'
+    title: '某电商平台物流总监',
+    rating: 5,
+    sourceCase: '某大型电商平台'
   },
   {
+    id: 'tm-002',
     content: '运输管理系统的智能调度功能非常强大，帮我们节省了大量的运输成本，ROI超出预期。',
     name: '李总',
-    title: '某快递企业运营副总'
+    title: '某快递企业运营副总',
+    rating: 5,
+    sourceCase: '某知名快递企业'
   },
   {
+    id: 'tm-003',
     content: '配送系统上线后，门店配送准时率大幅提升，客户满意度明显提高，非常感谢知运团队。',
     name: '张总监',
-    title: '某零售集团供应链总监'
+    title: '某零售集团供应链总监',
+    rating: 4,
+    sourceCase: '某连锁零售集团'
+  },
+  {
+    id: 'tm-004',
+    content: '冷链监控功能让我们对生鲜运输全程放心，损耗率下降超出预期。',
+    name: '陈经理',
+    title: '某生鲜平台物流负责人',
+    rating: 5,
+    sourceCase: '某生鲜电商平台'
+  },
+  {
+    id: 'tm-005',
+    content: '供应链可视化做得很扎实，JIT配送终于有了系统支撑，实施团队也很专业。',
+    name: '刘工',
+    title: '某零部件企业供应链经理',
+    rating: 4,
+    sourceCase: '某汽车零部件制造商'
+  },
+  {
+    id: 'tm-006',
+    content: 'GSP合规功能满足要求，但初期上手需要一定培训，希望后续增加更多操作指引。',
+    name: '赵主管',
+    title: '某医药企业仓储主管',
+    rating: 3,
+    sourceCase: '某医药流通企业'
+  },
+  {
+    id: 'tm-007',
+    content: '冷链监控功能让我们对生鲜运输全程放心，损耗率下降超出预期。',
+    name: '周总',
+    title: '某电商企业仓储总监',
+    rating: 5,
+    sourceCase: '某生鲜电商平台'
+  },
+  {
+    id: 'tm-008',
+    content: '系统上线后中转效率明显提升，期待移动端功能进一步完善。',
+    name: '',
+    title: '',
+    rating: 4,
+    sourceCase: '某知名快递企业'
   }
 ]
+
+// 评价多选与导出：选择状态由 composable 维护，切换案例筛选或离开页面后返回均保留
+const {
+  selectedCount,
+  isSelected,
+  toggle,
+  selectAll,
+  clear
+} = useTestimonialSelection()
+
+const handleSelectAll = () => {
+  selectAll(testimonials.map(t => t.id))
+}
+
+const handleExport = () => {
+  const selected = testimonials.filter(t => isSelected(t.id))
+  const errors = validateTestimonials(selected)
+  if (errors.length > 0) {
+    ElMessageBox.alert(errors.join('<br>'), '无法生成导出文件', {
+      confirmButtonText: '知道了',
+      type: 'warning',
+      dangerouslyUseHTMLString: true
+    })
+    return
+  }
+  downloadCsv(buildCsv(selected))
+  ElMessage.success(`已按满意度整理导出 ${selected.length} 条客户评价`)
+}
 </script>
 
 <style lang="scss" scoped>
@@ -399,6 +517,30 @@ const testimonials = [
   }
 }
 
+.testimonial-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  background: $bg-white;
+  border-radius: $radius-md;
+  box-shadow: $shadow-sm;
+  padding: $spacing-sm $spacing-md;
+  margin-bottom: $spacing-lg;
+}
+
+.selected-count {
+  font-size: $font-size-sm;
+  color: $text-secondary;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
 .testimonial-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -411,6 +553,31 @@ const testimonials = [
   border-radius: $radius-lg;
   box-shadow: $shadow-md;
   position: relative;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, box-shadow 0.2s;
+
+  &.is-selected {
+    border-color: $primary-color;
+    box-shadow: $shadow-lg;
+  }
+}
+
+.card-checkbox {
+  position: absolute;
+  top: $spacing-md;
+  right: $spacing-md;
+  height: auto;
+}
+
+.testimonial-rate {
+  margin-bottom: $spacing-md;
+}
+
+.testimonial-source {
+  margin-top: $spacing-sm;
+  font-size: $font-size-xs;
+  color: $text-secondary;
 }
 
 .quote-icon {
