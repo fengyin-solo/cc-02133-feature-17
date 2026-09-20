@@ -31,8 +31,8 @@
         <div class="case-grid">
           <div 
             class="case-detail-card" 
-            v-for="caseItem in filteredCases" 
-            :key="caseItem.title"
+            v-for="caseItem in filteredCases"
+            :key="caseItem.id"
           >
             <div class="case-header" :style="{ background: caseItem.gradient }">
               <div class="case-logo">
@@ -70,14 +70,50 @@
     </section>
     
     <!-- 客户评价 -->
-    <section class="section section-light">
+    <section id="testimonials" class="section section-light">
       <div class="container">
-        <SectionTitle 
-          title="客户评价" 
+        <SectionTitle
+          title="客户评价"
           subtitle="听听他们怎么说"
         />
+
+        <!-- 批量整理与导出工具栏 -->
+        <div class="testimonial-toolbar">
+          <div class="toolbar-left">
+            <el-checkbox
+              :model-value="allSelected"
+              :indeterminate="indeterminate"
+              @change="handleSelectAll"
+            >全选</el-checkbox>
+            <span class="selected-count">
+              已选 {{ selectedIds.length }} / {{ testimonials.length }} 条，导出时按满意度从高到低整理
+            </span>
+          </div>
+          <div class="toolbar-right">
+            <el-button :disabled="selectedIds.length === 0" @click="clearSelection">
+              清空选择
+            </el-button>
+            <el-button type="primary" @click="handleExport">
+              <el-icon class="el-icon--left"><Download /></el-icon>
+              导出所选评价
+            </el-button>
+          </div>
+        </div>
+
         <div class="testimonial-grid">
-          <div class="testimonial-card" v-for="testimonial in testimonials" :key="testimonial.name">
+          <div
+            class="testimonial-card"
+            :class="{ selected: isSelected(testimonial.id) }"
+            v-for="testimonial in testimonials"
+            :key="testimonial.id"
+            @click="toggle(testimonial.id)"
+          >
+            <el-checkbox
+              class="testimonial-checkbox"
+              :model-value="isSelected(testimonial.id)"
+              @click.stop
+              @change="toggle(testimonial.id)"
+            />
             <div class="quote-icon">
               <el-icon :size="32"><ChatDotSquare /></el-icon>
             </div>
@@ -112,7 +148,10 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import SectionTitle from '@/components/SectionTitle.vue'
+import { useStableSelection } from '@/composables/useStableSelection'
+import { downloadTestimonials } from '@/utils/testimonialExport'
 
 const activeTag = ref('all')
 
@@ -126,6 +165,7 @@ const tags = [
 
 const cases = [
   {
+    id: 'ecommerce-platform',
     title: '某大型电商平台',
     industry: '电商物流',
     tag: 'ecommerce',
@@ -140,6 +180,7 @@ const cases = [
     ]
   },
   {
+    id: 'express-enterprise',
     title: '某知名快递企业',
     industry: '快递物流',
     tag: 'express',
@@ -154,6 +195,7 @@ const cases = [
     ]
   },
   {
+    id: 'retail-group',
     title: '某连锁零售集团',
     industry: '零售配送',
     tag: 'retail',
@@ -168,6 +210,7 @@ const cases = [
     ]
   },
   {
+    id: 'auto-parts-manufacturer',
     title: '某汽车零部件制造商',
     industry: '制造业',
     tag: 'manufacturing',
@@ -182,6 +225,7 @@ const cases = [
     ]
   },
   {
+    id: 'fresh-ecommerce',
     title: '某生鲜电商平台',
     industry: '电商物流',
     tag: 'ecommerce',
@@ -196,6 +240,7 @@ const cases = [
     ]
   },
   {
+    id: 'pharma-distributor',
     title: '某医药流通企业',
     industry: '制造业',
     tag: 'manufacturing',
@@ -218,23 +263,93 @@ const filteredCases = computed(() => {
   return cases.filter(c => c.tag === activeTag.value)
 })
 
+// 客户评价：rating 为满意度星级（1-5），caseId 关联来源案例
 const testimonials = [
   {
+    id: 't-001',
+    rating: 5,
     content: '知运的智慧仓储系统帮助我们实现了仓库作业的全面升级，效率提升非常明显，团队都很满意。',
     name: '王经理',
-    title: '某电商平台物流总监'
+    title: '某电商平台物流总监',
+    caseId: 'ecommerce-platform'
   },
   {
+    id: 't-002',
+    rating: 4,
     content: '运输管理系统的智能调度功能非常强大，帮我们节省了大量的运输成本，ROI超出预期。',
     name: '李总',
-    title: '某快递企业运营副总'
+    title: '某快递企业运营副总',
+    caseId: 'express-enterprise'
   },
   {
+    id: 't-003',
+    rating: 5,
     content: '配送系统上线后，门店配送准时率大幅提升，客户满意度明显提高，非常感谢知运团队。',
     name: '张总监',
-    title: '某零售集团供应链总监'
+    title: '某零售集团供应链总监',
+    caseId: 'retail-group'
   }
 ]
+
+const allTestimonialIds = computed(() => testimonials.map(t => t.id))
+
+// 多选状态：切换案例标签、路由返回、导出失败重试后均保持稳定
+const { selected, toggle, setAll, clear, isSelected, prune } =
+  useStableSelection('cases:testimonial-selection', allTestimonialIds)
+
+// 案例数据更新后清理失效的已选 id
+prune(allTestimonialIds.value)
+
+const selectedIds = computed(() =>
+  allTestimonialIds.value.filter(id => selected.value.has(id))
+)
+
+const allSelected = computed(
+  () => testimonials.length > 0 && selectedIds.value.length === testimonials.length
+)
+const indeterminate = computed(
+  () => selectedIds.value.length > 0 && selectedIds.value.length < testimonials.length
+)
+
+function handleSelectAll(checked) {
+  setAll(allTestimonialIds.value, checked)
+}
+
+function clearSelection() {
+  clear()
+  ElMessage.info('已清空选择')
+}
+
+function escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function handleExport() {
+  const items = testimonials.filter(t => selected.value.has(t.id))
+
+  // 下载函数内部先做完整性校验，不通过时不会生成任何文件
+  const result = downloadTestimonials(items, Object.fromEntries(cases.map(c => [c.id, c.title])))
+
+  if (!result.valid) {
+    ElMessage({
+      type: 'error',
+      duration: 5000,
+      dangerouslyUseHTMLString: true,
+      message: [
+        '<strong>无法生成导出文件，原因如下，请调整后重试：</strong>',
+        ...result.reasons.map(r => escapeHtml(r.message))
+      ].join('<br/>')
+    })
+    return
+  }
+
+  ElMessage.success(`已按满意度整理并导出 ${result.count} 条评价：${result.filename}`)
+}
 </script>
 
 <style lang="scss" scoped>
@@ -405,12 +520,63 @@ const testimonials = [
   gap: $spacing-lg;
 }
 
+.testimonial-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  background: $bg-white;
+  border: 1px solid $border-light;
+  border-radius: $radius-md;
+  padding: $spacing-sm $spacing-md;
+  margin-bottom: $spacing-lg;
+
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: $spacing-xs;
+  }
+
+  .selected-count {
+    font-size: $font-size-sm;
+    color: $text-secondary;
+    margin-left: $spacing-sm;
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+  }
+}
+
 .testimonial-card {
   background: $bg-white;
   padding: $spacing-xl;
   border-radius: $radius-lg;
   box-shadow: $shadow-md;
   position: relative;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.2s, box-shadow 0.3s, transform 0.3s;
+
+  &:hover {
+    border-color: rgba($primary-color, 0.35);
+  }
+
+  &.selected {
+    border-color: $primary-color;
+    box-shadow: $shadow-lg;
+  }
+}
+
+.testimonial-checkbox {
+  position: absolute;
+  top: $spacing-md;
+  right: $spacing-md;
+  z-index: 1;
 }
 
 .quote-icon {
@@ -475,9 +641,19 @@ const testimonials = [
   .case-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .testimonial-grid {
     grid-template-columns: 1fr;
+  }
+
+  .testimonial-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+
+    .toolbar-left,
+    .toolbar-right {
+      justify-content: center;
+    }
   }
 }
 
